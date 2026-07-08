@@ -7,7 +7,9 @@ from typing import Any
 import pandas as pd
 
 from .data_loader import fetch_market_data, load_assets
+from .data_loader import download_single_asset
 from .data_quality import data_quality_report, enrich_assets_with_quality
+from .macro import DXY_TICKER, dxy_context, enrich_summary_with_dxy
 from .scoring import build_summary_table
 from .utils import load_yaml
 
@@ -67,6 +69,23 @@ def build_dashboard_payload(
         frequency=frequency,
         trend_settings=settings.get("trend", {}),
     )
+    macro_settings = settings.get("macro", {})
+    dxy_ticker = macro_settings.get("dxy_ticker", DXY_TICKER)
+    dxy_frame, dxy_warnings = download_single_asset(
+        ticker=dxy_ticker,
+        start=start_date or settings.get("data", {}).get("default_start_date"),
+        frequency=frequency,
+        retries=macro_settings.get("retries", 2),
+        local_cache_dir=cache_dir,
+        refresh=refresh,
+    )
+    summary = enrich_summary_with_dxy(
+        summary,
+        data,
+        dxy_frame,
+        beta_window=int(macro_settings.get("dxy_beta_window", 126)),
+        corr_window=int(macro_settings.get("dxy_correlation_window", 63)),
+    )
     return {
         "assets": enriched_assets,
         "settings": settings,
@@ -74,6 +93,12 @@ def build_dashboard_payload(
         "download_log": download_log,
         "quality": quality,
         "summary": summary,
+        "macro": {
+            "dxy_ticker": dxy_ticker,
+            "dxy": dxy_frame,
+            "dxy_context": dxy_context(dxy_frame),
+            "dxy_warnings": dxy_warnings,
+        },
     }
 
 

@@ -15,6 +15,38 @@ def time_series_momentum_signal(price: pd.Series, window: int = 252) -> pd.Serie
     return pd.Series(np.where(momentum > 0, 1.0, np.where(momentum < 0, -1.0, 0.0)), index=clean.index)
 
 
+def trend_ensemble_signal(
+    price: pd.Series,
+    windows: list[int] | None = None,
+    volatility_window: int = 60,
+    deadband: float = 0.15,
+) -> pd.Series:
+    windows = windows or [21, 63, 126, 252]
+    clean = clean_price_series(price)
+    if clean.empty:
+        return pd.Series(dtype=float)
+
+    returns = clean.pct_change(fill_method=None)
+    vol = returns.rolling(volatility_window, min_periods=max(20, volatility_window // 2)).std()
+    components = []
+    for window in windows:
+        raw = clean / clean.shift(window) - 1
+        scaled = raw / (vol * np.sqrt(window)).replace(0, np.nan)
+        components.append(np.tanh(scaled).rename(f"mom_{window}"))
+
+    score = pd.concat(components, axis=1).mean(axis=1)
+    sma_100 = clean.rolling(100, min_periods=40).mean()
+    sma_200 = clean.rolling(200, min_periods=80).mean()
+    ma_posture = pd.Series(0.0, index=clean.index)
+    ma_posture = ma_posture.mask(clean > sma_100, 0.35).mask(clean < sma_100, -0.35)
+    crossover = pd.Series(0.0, index=clean.index)
+    crossover = crossover.mask(sma_100 > sma_200, 0.15).mask(sma_100 < sma_200, -0.15)
+    ma_posture = ma_posture.add(crossover, fill_value=0.0)
+    combined = (0.75 * score + 0.25 * ma_posture).clip(-1, 1).fillna(0.0)
+    combined = combined.mask(combined.abs() < deadband, 0.0)
+    return combined.clip(-1, 1)
+
+
 def signal_for_strategy(price: pd.Series, strategy: str, params: dict[str, int] | None = None) -> pd.Series:
     params = params or {}
     if strategy == "price_above_sma":
@@ -25,6 +57,16 @@ def signal_for_strategy(price: pd.Series, strategy: str, params: dict[str, int] 
         return donchian_signal(price, params.get("window", 55))
     if strategy == "time_series_momentum":
         return time_series_momentum_signal(price, params.get("window", 252))
+    if strategy == "trend_ensemble":
+        windows = params.get("windows")
+        if windows is None:
+            windows = [21, 63, 126, params.get("window", 252)]
+        return trend_ensemble_signal(
+            price,
+            windows=windows,
+            volatility_window=params.get("volatility_window", 60),
+            deadband=params.get("deadband", 0.15),
+        )
     raise ValueError(f"Unknown strategy: {strategy}")
 
 
@@ -94,6 +136,11 @@ def backtest_universe(
     output = pd.DataFrame({"strategy_return": portfolio})
     output["equity"] = (1 + output["strategy_return"]).cumprod()
     output["drawdown"] = drawdown_series(output["strategy_return"])
+    positions = pd.concat({ticker: result["position"] for ticker, result in asset_results.items()}, axis=1).reindex(output.index)
+    turnovers = pd.concat({ticker: result["turnover"] for ticker, result in asset_results.items()}, axis=1).reindex(output.index)
+    output["average_abs_position"] = positions.abs().mean(axis=1)
+    output["average_turnover"] = turnovers.mean(axis=1)
+    output["active_assets"] = positions.abs().gt(0).sum(axis=1)
     return output, asset_results
 
 
@@ -125,6 +172,17 @@ def performance_metrics(returns: pd.Series, frequency: str = "daily") -> dict[st
         "Kurtosis": float(stats.kurtosis(clean, nan_policy="omit")) if len(clean) > 3 else np.nan,
         "Average Exposure": np.nan,
         "Maximum Exposure": np.nan,
+    }
+
+
+def portfolio_diagnostics(backtest: pd.DataFrame) -> dict[str, float]:
+    if backtest.empty:
+        return {}
+    return {
+        "Average Exposure": float(backtest["average_abs_position"].mean()) if "average_abs_position" in backtest else np.nan,
+        "Maximum Exposure": float(backtest["average_abs_position"].max()) if "average_abs_position" in backtest else np.nan,
+        "Average Turnover": float(backtest["average_turnover"].mean()) if "average_turnover" in backtest else np.nan,
+        "Average Active Assets": float(backtest["active_assets"].mean()) if "active_assets" in backtest else np.nan,
     }
 
 

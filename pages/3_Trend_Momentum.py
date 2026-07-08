@@ -38,6 +38,13 @@ columns = [
     "Momentum Acceleration",
     "Cross-Sectional Momentum Score",
     "Rotation Quadrant",
+    "DXY Pressure",
+    "DXY Pressure Score",
+    "DXY Beta",
+    "DXY Correlation",
+    "Trade Setup",
+    "Trade Idea Score",
+    "Trade Idea Conviction",
     "Final Composite Score",
     "Confidence Score",
 ]

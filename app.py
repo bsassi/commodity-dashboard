@@ -28,6 +28,7 @@ with st.spinner("Loading market data and computing signals..."):
     payload = get_payload_from_controls(controls)
 
 summary = payload["summary"]
+macro = payload.get("macro", {})
 if summary.empty:
     st.error("No usable market data was loaded. Check Yahoo Finance availability or reduce filters.")
     st.stop()
@@ -51,16 +52,21 @@ top_momentum = view.sort_values("Risk Adjusted Momentum", ascending=False).head(
 high_vol = view.sort_values("60D Volatility", ascending=False).head(1)
 worst_dd = view.sort_values("Current Drawdown", ascending=True).head(1)
 sector_scores = view.groupby("Sector")["Final Composite Score"].mean().sort_values()
+top_trade = view.sort_values("Trade Idea Score", key=lambda s: s.abs(), ascending=False).head(1) if "Trade Idea Score" in view else view.head(0)
+dxy_context = macro.get("dxy_context", {})
 
-cols = st.columns(8)
-cols[0].metric("Bullish", bullish)
-cols[1].metric("Bearish", bearish)
-cols[2].metric("Neutral", neutral)
-cols[3].metric("Top Momentum", top_momentum["Ticker"].iloc[0] if not top_momentum.empty else "-")
-cols[4].metric("Highest Vol", high_vol["Ticker"].iloc[0] if not high_vol.empty else "-")
-cols[5].metric("Worst Drawdown", worst_dd["Ticker"].iloc[0] if not worst_dd.empty else "-")
-cols[6].metric("Strongest Sector", sector_scores.index[-1] if len(sector_scores) else "-")
-cols[7].metric("Weakest Sector", sector_scores.index[0] if len(sector_scores) else "-")
+top_cols = st.columns(5)
+top_cols[0].metric("Bullish", bullish)
+top_cols[1].metric("Bearish", bearish)
+top_cols[2].metric("Neutral", neutral)
+top_cols[3].metric("Top Momentum", top_momentum["Ticker"].iloc[0] if not top_momentum.empty else "-")
+top_cols[4].metric("Highest Vol", high_vol["Ticker"].iloc[0] if not high_vol.empty else "-")
+bottom_cols = st.columns(5)
+bottom_cols[0].metric("Worst Drawdown", worst_dd["Ticker"].iloc[0] if not worst_dd.empty else "-")
+bottom_cols[1].metric("Strongest Sector", sector_scores.index[-1] if len(sector_scores) else "-")
+bottom_cols[2].metric("Weakest Sector", sector_scores.index[0] if len(sector_scores) else "-")
+bottom_cols[3].metric("Top Trade Idea", top_trade["Ticker"].iloc[0] if not top_trade.empty else "-")
+bottom_cols[4].metric("DXY Regime", dxy_context.get("Regime", "-"))
 
 st.subheader("Market Overview")
 display_columns = [
@@ -86,10 +92,17 @@ display_columns = [
     "Momentum Signal",
     "Trend Strength",
     "Risk Level",
+    "DXY Pressure",
+    "DXY Pressure Score",
+    "DXY Beta",
     "Seasonality Signal",
+    "Seasonality Score",
     "Composite Score",
     "Confidence Score",
     "Final Composite Score",
+    "Trade Setup",
+    "Trade Idea Score",
+    "Trade Idea Conviction",
     "Signal Classification",
     "Signal Explanation",
 ]

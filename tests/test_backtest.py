@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.backtest import apply_signal_without_lookahead, backtest_single_asset, performance_metrics
+from src.backtest import apply_signal_without_lookahead, backtest_single_asset, performance_metrics, trend_ensemble_signal
 
 
 def test_signal_is_shifted_before_return_application() -> None:
@@ -28,3 +28,13 @@ def test_performance_metrics_are_defined() -> None:
     metrics = performance_metrics(returns)
     assert "Sharpe Ratio" in metrics
     assert "Maximum Drawdown" in metrics
+
+
+def test_trend_ensemble_signal_is_continuous_and_positive_on_uptrend() -> None:
+    price = pd.Series(range(100, 420), index=pd.date_range("2024-01-01", periods=320, freq="B"))
+    signal = trend_ensemble_signal(price)
+
+    clean = signal.dropna()
+    assert clean.iloc[-1] > 0
+    assert clean.abs().max() <= 1
+    assert clean.nunique() > 3

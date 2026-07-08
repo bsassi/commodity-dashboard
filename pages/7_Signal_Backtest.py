@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from src.backtest import backtest_single_asset, backtest_universe, performance_metrics, sensitivity_grid
+from src.backtest import backtest_single_asset, backtest_universe, performance_metrics, portfolio_diagnostics, sensitivity_grid
 from src.charts import drawdown_chart, equity_curve
 from src.reporting import configure_page, format_display_table, get_payload_from_controls, render_provider_warnings, render_sidebar
 
@@ -25,14 +25,21 @@ if summary.empty:
 
 strategy = st.selectbox(
     "Strategy",
-    ["time_series_momentum", "price_above_sma", "sma_crossover", "donchian_breakout"],
+    ["trend_ensemble", "time_series_momentum", "price_above_sma", "sma_crossover", "donchian_breakout"],
 )
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 window = col1.number_input("Window", 20, 400, 252, 5)
 short_window = col2.number_input("Short SMA", 10, 200, 50, 5)
 long_window = col3.number_input("Long SMA", 50, 400, 200, 5)
+deadband = col4.slider("Trend deadband", 0.00, 0.50, 0.15, 0.05)
 
-params = {"window": int(window), "short_window": int(short_window), "long_window": int(long_window)}
+params = {
+    "window": int(window),
+    "short_window": int(short_window),
+    "long_window": int(long_window),
+    "deadband": float(deadband),
+    "volatility_window": 60,
+}
 portfolio_bt, asset_results = backtest_universe(
     data,
     strategy=strategy,
@@ -45,8 +52,8 @@ if portfolio_bt.empty:
     st.error("Backtest could not be computed for the selected universe.")
     st.stop()
 
-metrics = performance_metrics(portfolio_bt["strategy_return"])
-metric_cols = st.columns(6)
+metrics = {**performance_metrics(portfolio_bt["strategy_return"]), **portfolio_diagnostics(portfolio_bt)}
+metric_cols = st.columns(8)
 for column, (label, value) in zip(
     metric_cols,
     [
@@ -56,6 +63,8 @@ for column, (label, value) in zip(
         ("Sortino", metrics.get("Sortino Ratio")),
         ("Calmar", metrics.get("Calmar Ratio")),
         ("Max DD", metrics.get("Maximum Drawdown")),
+        ("Avg Exp", metrics.get("Average Exposure")),
+        ("Avg Turnover", metrics.get("Average Turnover")),
     ],
 ):
     if label in {"Sharpe", "Sortino", "Calmar"}:

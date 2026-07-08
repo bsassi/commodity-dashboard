@@ -188,6 +188,7 @@ def score_asset(
         "Trend Strength": float(trend.get("Trend Score", 0.0)),
         "Risk Level": vol.get("Risk Level"),
         "Seasonality Signal": seasonality.get("Seasonality Signal"),
+        "Seasonality Score": float(seasonality.get("Seasonality Score", 0.0)),
         "Seasonality Evidence": seasonality.get("Seasonality Evidence"),
         "Composite Score": raw_score,
         "Direction Score": raw_score,
