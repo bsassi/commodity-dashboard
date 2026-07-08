@@ -1,0 +1,49 @@
+data:
+  default_start_date: "2000-01-01"
+  frequency: "daily"
+  local_cache: true
+  cache_ttl_seconds: 3600
+  outlier_zscore: 8.0
+  abnormal_return_threshold: 0.25
+
+trend:
+  sma_windows: [20, 50, 100, 200]
+  ema_windows: [20, 50, 100, 200]
+  donchian_windows: [20, 55, 100, 252]
+  regression_windows: [20, 60, 120, 252]
+  momentum_windows: [21, 63, 126, 189, 252]
+  exclude_last_month_default: false
+
+scoring:
+  weights:
+    trend: 0.35
+    time_series_momentum: 0.20
+    cross_sectional_momentum: 0.15
+    breakout: 0.10
+    seasonality: 0.10
+    risk_adjustment: 0.10
+  penalties:
+    extreme_volatility: 15
+    worsening_drawdown: 10
+    horizon_conflict: 12
+    fresh_threshold_cross: 5
+    insufficient_data: 20
+    weak_regression_fit: 8
+    fragile_seasonality: 8
+
+portfolio:
+  target_volatility: 0.10
+  max_weight_per_asset: 0.15
+  max_weight_per_sector: 0.35
+  gross_exposure_cap: 1.00
+  transaction_cost_bps: 5
+  rebalancing_frequency: "monthly"
+  long_only: false
+
+backtest:
+  transaction_cost_bps: 5
+  rebalancing_frequency: "monthly"
+  target_volatility: 0.10
+  leverage_cap: 1.50
+  max_position: 0.20
+  warmup_days: 252
