@@ -56,3 +56,22 @@ def test_empty_live_snapshot_is_neutral() -> None:
 
     assert snapshot["Signal"] == "Neutral / Wait"
     assert snapshot["Technical Score"] == 0.0
+
+
+def test_intraday_vwap_resets_by_session() -> None:
+    index = pd.to_datetime(
+        [
+            "2026-01-01 09:00",
+            "2026-01-01 10:00",
+            "2026-01-02 09:00",
+            "2026-01-02 10:00",
+        ]
+    )
+    price = pd.Series([100.0, 110.0, 200.0, 220.0], index=index)
+    frame = _ohlc(price)
+    frame["Volume"] = [1_000, 1_000, 1_000, 1_000]
+
+    indicators = add_technical_indicators(frame, interval="60m")
+
+    assert np.isclose(indicators["VWAP"].iloc[1], 105.0)
+    assert np.isclose(indicators["VWAP"].iloc[2], 200.0)

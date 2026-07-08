@@ -134,8 +134,8 @@ with refresh_cols[1]:
 with refresh_cols[2]:
     refresh_seconds = st.slider("Seconds", min_value=15, max_value=300, value=60, step=15)
 
-overlay_options = ["Moving averages", "Bollinger Bands", "Donchian Channel", "VWAP"]
-overlays = st.multiselect("Overlays", overlay_options, default=["Moving averages", "Bollinger Bands", "VWAP"])
+overlay_options = ["Moving averages", "VWAP", "Bollinger Bands", "Donchian Channel"]
+overlays = st.multiselect("Overlays", overlay_options, default=["Moving averages"])
 
 primary_asset = asset_by_label[primary_label]
 ticker = str(primary_asset["ticker"])
@@ -150,7 +150,7 @@ if frame.empty:
     st.error("No live data available for the selected commodity/timeframe.")
     st.stop()
 
-indicators = add_technical_indicators(frame)
+indicators = add_technical_indicators(frame, interval=interval)
 snapshot = technical_snapshot(indicators, interval=interval)
 
 metric_cols = st.columns(7)
@@ -222,7 +222,7 @@ with tabs[2]:
             prepost,
             st.session_state["live_refresh_key"],
         )
-        watch_snapshot = technical_snapshot(add_technical_indicators(watch_frame), interval=interval)
+        watch_snapshot = technical_snapshot(add_technical_indicators(watch_frame, interval=interval), interval=interval)
         rows.append(
             {
                 "Ticker": watch_ticker,

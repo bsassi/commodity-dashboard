@@ -12,6 +12,7 @@ from .seasonality import monthly_return_matrix
 
 TEMPLATE = "plotly_white"
 COLOR_SCALE = "RdBu"
+LINE_GAP_MULTIPLE = 4.0
 
 
 def performance_bar(summary: pd.DataFrame, column: str = "3M Return") -> go.Figure:
@@ -119,6 +120,35 @@ def equity_curve(backtest: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _with_visual_gaps(frame: pd.DataFrame, gap_multiple: float = LINE_GAP_MULTIPLE) -> pd.DataFrame:
+    if frame.empty or len(frame.index) < 3:
+        return frame
+
+    result = frame.copy()
+    index = pd.DatetimeIndex(result.index).sort_values()
+    diffs = index.to_series().diff().dropna()
+    diffs = diffs[diffs > pd.Timedelta(0)]
+    if diffs.empty:
+        return result
+
+    base_step = diffs.median()
+    if pd.isna(base_step) or base_step <= pd.Timedelta(0):
+        return result
+
+    gap_rows: list[pd.Timestamp] = []
+    threshold = base_step * gap_multiple
+    for previous, current in zip(index[:-1], index[1:]):
+        if current - previous > threshold:
+            gap_rows.append(previous + base_step)
+            gap_rows.append(current - base_step)
+
+    if not gap_rows:
+        return result
+
+    gaps = pd.DataFrame(np.nan, index=pd.DatetimeIndex(gap_rows), columns=result.columns)
+    return pd.concat([result, gaps]).sort_index()
+
+
 def live_technical_chart(
     frame: pd.DataFrame,
     title: str,
@@ -126,22 +156,21 @@ def live_technical_chart(
     overlays: list[str] | None = None,
     show_volume: bool = True,
 ) -> go.Figure:
-    overlays = overlays or ["Moving averages", "Bollinger Bands", "VWAP"]
+    overlays = overlays or ["Moving averages"]
     if frame.empty:
         fig = go.Figure()
         fig.update_layout(template=TEMPLATE, title=title, height=620, margin=dict(l=10, r=10, t=45, b=10))
         return fig
 
+    plot_frame = _with_visual_gaps(frame)
     rows = 4 if show_volume else 3
-    subplot_titles = ["Price", "Volume", "RSI", "MACD"] if show_volume else ["Price", "RSI", "MACD"]
-    row_heights = [0.55, 0.12, 0.16, 0.17] if show_volume else [0.62, 0.18, 0.20]
+    row_heights = [0.60, 0.10, 0.14, 0.16] if show_volume else [0.66, 0.16, 0.18]
     fig = make_subplots(
         rows=rows,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.035,
+        vertical_spacing=0.025,
         row_heights=row_heights,
-        subplot_titles=subplot_titles,
     )
 
     price_row = 1
@@ -157,24 +186,41 @@ def live_technical_chart(
                 low=frame["Low"],
                 close=frame["Close"],
                 name="OHLC",
+                showlegend=False,
                 increasing_line_color="#1f7a4d",
                 decreasing_line_color="#b11226",
+                increasing_fillcolor="rgba(31, 122, 77, 0.42)",
+                decreasing_fillcolor="rgba(177, 18, 38, 0.42)",
             ),
             row=price_row,
             col=1,
         )
     else:
         fig.add_trace(
-            go.Scatter(x=frame.index, y=frame["Close"], mode="lines", name="Close", line=dict(color="#1f4e79")),
+            go.Scatter(
+                x=plot_frame.index,
+                y=plot_frame["Close"],
+                mode="lines",
+                name="Close",
+                line=dict(color="#1f4e79", width=1.5),
+                connectgaps=False,
+            ),
             row=price_row,
             col=1,
         )
 
     if "Moving averages" in overlays:
-        for column, color in [("SMA Fast", "#1f4e79"), ("SMA Slow", "#111111"), ("EMA Fast", "#d17a00")]:
+        for column, color, width in [("SMA Fast", "#235789", 1.1), ("SMA Slow", "#222222", 1.4), ("EMA Fast", "#d17a00", 1.0)]:
             if column in frame:
                 fig.add_trace(
-                    go.Scatter(x=frame.index, y=frame[column], mode="lines", name=column, line=dict(color=color, width=1.4)),
+                    go.Scatter(
+                        x=plot_frame.index,
+                        y=plot_frame[column],
+                        mode="lines",
+                        name=column,
+                        line=dict(color=color, width=width),
+                        connectgaps=False,
+                    ),
                     row=price_row,
                     col=1,
                 )
@@ -182,85 +228,163 @@ def live_technical_chart(
     if "Bollinger Bands" in overlays and {"BB Upper", "BB Lower"}.issubset(frame.columns):
         fig.add_trace(
             go.Scatter(
-                x=frame.index,
-                y=frame["BB Upper"],
+                x=plot_frame.index,
+                y=plot_frame["BB Upper"],
                 mode="lines",
-                name="BB Upper",
-                line=dict(color="#7a8699", width=1, dash="dot"),
+                name="Bollinger",
+                line=dict(color="#7a8699", width=0.8, dash="dot"),
+                opacity=0.75,
+                connectgaps=False,
             ),
             row=price_row,
             col=1,
         )
         fig.add_trace(
             go.Scatter(
-                x=frame.index,
-                y=frame["BB Lower"],
+                x=plot_frame.index,
+                y=plot_frame["BB Lower"],
                 mode="lines",
-                name="BB Lower",
-                line=dict(color="#7a8699", width=1, dash="dot"),
+                name="Bollinger range",
+                line=dict(color="#7a8699", width=0.8, dash="dot"),
                 fill="tonexty",
-                fillcolor="rgba(122, 134, 153, 0.10)",
+                fillcolor="rgba(122, 134, 153, 0.08)",
+                opacity=0.75,
+                connectgaps=False,
+                showlegend=False,
             ),
             row=price_row,
             col=1,
         )
 
     if "Donchian Channel" in overlays and {"Donchian High", "Donchian Low"}.issubset(frame.columns):
-        for column, color in [("Donchian High", "#3b6f3f"), ("Donchian Low", "#8c2f2f")]:
+        for column, color, name in [("Donchian High", "#3b6f3f", "Donchian High"), ("Donchian Low", "#8c2f2f", "Donchian Low")]:
             fig.add_trace(
-                go.Scatter(x=frame.index, y=frame[column], mode="lines", name=column, line=dict(color=color, width=1, dash="dash")),
+                go.Scatter(
+                    x=plot_frame.index,
+                    y=plot_frame[column],
+                    mode="lines",
+                    name=name,
+                    line=dict(color=color, width=0.9, dash="dash"),
+                    opacity=0.70,
+                    connectgaps=False,
+                ),
                 row=price_row,
                 col=1,
             )
 
     if "VWAP" in overlays and "VWAP" in frame:
         fig.add_trace(
-            go.Scatter(x=frame.index, y=frame["VWAP"], mode="lines", name="VWAP", line=dict(color="#6b5b2a", width=1.3)),
+            go.Scatter(
+                x=plot_frame.index,
+                y=plot_frame["VWAP"],
+                mode="lines",
+                name="VWAP",
+                line=dict(color="#6b5b2a", width=1.1),
+                opacity=0.82,
+                connectgaps=False,
+            ),
             row=price_row,
             col=1,
         )
 
     if show_volume and "Volume" in frame:
         fig.add_trace(
-            go.Bar(x=frame.index, y=frame["Volume"], name="Volume", marker_color="#b8c2d1", opacity=0.75),
+            go.Bar(
+                x=frame.index,
+                y=frame["Volume"],
+                name="Volume",
+                marker_color="#c7d0dc",
+                opacity=0.62,
+                showlegend=False,
+            ),
             row=2,
             col=1,
         )
 
     if "RSI" in frame:
         fig.add_trace(
-            go.Scatter(x=frame.index, y=frame["RSI"], mode="lines", name="RSI", line=dict(color="#1f4e79", width=1.4)),
+            go.Scatter(
+                x=plot_frame.index,
+                y=plot_frame["RSI"],
+                mode="lines",
+                name="RSI",
+                line=dict(color="#1f4e79", width=1.2),
+                connectgaps=False,
+                showlegend=False,
+            ),
             row=rsi_row,
             col=1,
         )
-        fig.add_hline(y=70, line_dash="dot", line_color="#8c2f2f", row=rsi_row, col=1)
-        fig.add_hline(y=30, line_dash="dot", line_color="#3b6f3f", row=rsi_row, col=1)
-        fig.update_yaxes(range=[0, 100], row=rsi_row, col=1)
+        fig.add_hline(y=70, line_dash="dot", line_color="#8c2f2f", line_width=1, row=rsi_row, col=1)
+        fig.add_hline(y=30, line_dash="dot", line_color="#3b6f3f", line_width=1, row=rsi_row, col=1)
+        fig.update_yaxes(range=[10, 90], row=rsi_row, col=1)
 
     if {"MACD", "MACD Signal", "MACD Histogram"}.issubset(frame.columns):
         colors = np.where(frame["MACD Histogram"] >= 0, "#1f7a4d", "#b11226")
         fig.add_trace(
-            go.Bar(x=frame.index, y=frame["MACD Histogram"], name="MACD Hist", marker_color=colors, opacity=0.55),
+            go.Bar(
+                x=frame.index,
+                y=frame["MACD Histogram"],
+                name="MACD Hist",
+                marker_color=colors,
+                opacity=0.42,
+                showlegend=False,
+            ),
             row=macd_row,
             col=1,
         )
         fig.add_trace(
-            go.Scatter(x=frame.index, y=frame["MACD"], mode="lines", name="MACD", line=dict(color="#1f4e79", width=1.2)),
+            go.Scatter(
+                x=plot_frame.index,
+                y=plot_frame["MACD"],
+                mode="lines",
+                name="MACD",
+                line=dict(color="#1f4e79", width=1.15),
+                connectgaps=False,
+                showlegend=False,
+            ),
             row=macd_row,
             col=1,
         )
         fig.add_trace(
-            go.Scatter(x=frame.index, y=frame["MACD Signal"], mode="lines", name="MACD Signal", line=dict(color="#d17a00", width=1.2)),
+            go.Scatter(
+                x=plot_frame.index,
+                y=plot_frame["MACD Signal"],
+                mode="lines",
+                name="MACD Signal",
+                line=dict(color="#d17a00", width=1.1),
+                connectgaps=False,
+                showlegend=False,
+            ),
             row=macd_row,
             col=1,
         )
 
     fig.update_layout(
         template=TEMPLATE,
-        title=title,
-        height=820 if show_volume else 760,
-        margin=dict(l=10, r=10, t=50, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        title=dict(text=title, x=0.0, xanchor="left", y=0.995, font=dict(size=15)),
+        height=780 if show_volume else 720,
+        margin=dict(l=8, r=8, t=54, b=76),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.08,
+            xanchor="left",
+            x=0,
+            font=dict(size=11),
+            bgcolor="rgba(255,255,255,0)",
+            title_text="",
+        ),
     )
-    fig.update_xaxes(rangeslider_visible=False)
+    fig.update_yaxes(title_text="Price", row=price_row, col=1, fixedrange=False)
+    if show_volume:
+        fig.update_yaxes(title_text="Vol", row=2, col=1, fixedrange=True)
+    fig.update_yaxes(title_text="RSI", row=rsi_row, col=1, fixedrange=True)
+    fig.update_yaxes(title_text="MACD", row=macd_row, col=1, fixedrange=False)
+    fig.update_xaxes(rangeslider_visible=False, showspikes=True, spikemode="across", spikesnap="cursor")
+    fig.update_xaxes(showticklabels=False, row=price_row, col=1)
+    if show_volume:
+        fig.update_xaxes(showticklabels=False, row=2, col=1)
+    fig.update_xaxes(showticklabels=False, row=rsi_row, col=1)
     return fig

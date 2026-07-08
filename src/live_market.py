@@ -41,6 +41,10 @@ def bars_per_year(interval: str) -> float:
     return float(INTERVALS_PER_YEAR.get(interval, 252))
 
 
+def is_intraday_interval(interval: str) -> bool:
+    return interval.endswith("m")
+
+
 def download_live_asset(
     ticker: str,
     period: str = "5d",
@@ -122,6 +126,7 @@ def macd(price: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> p
 
 def add_technical_indicators(
     frame: pd.DataFrame,
+    interval: str = "5m",
     fast_window: int = 20,
     slow_window: int = 50,
     rsi_window: int = 14,
@@ -168,8 +173,16 @@ def add_technical_indicators(
     result["Donchian Low"] = low.shift(1).rolling(donchian_window, min_periods=min_periods).min()
 
     typical_price = (high + low + close) / 3
-    cum_volume = volume.where(volume > 0).cumsum()
-    result["VWAP"] = (typical_price * volume.where(volume > 0)).cumsum() / cum_volume
+    valid_volume = volume.where(volume > 0)
+    if is_intraday_interval(interval):
+        session = pd.Series(result.index.date, index=result.index)
+        session_volume = valid_volume.groupby(session).cumsum()
+        session_value = (typical_price * valid_volume).groupby(session).cumsum()
+        result["VWAP"] = session_value / session_volume
+    else:
+        rolling_volume = valid_volume.rolling(20, min_periods=5).sum()
+        rolling_value = (typical_price * valid_volume).rolling(20, min_periods=5).sum()
+        result["VWAP"] = rolling_value / rolling_volume
     return result
 
 
